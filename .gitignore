@@ -1,0 +1,8 @@
+# Ignore the category_analysis_results folder
+category_analysis_results/
+
+# Ignore the DRL_MODELS folder
+DRL_MODELS/
+
+# ignore the csv
+marginwell_sample_lightbulb_output_dataset_1.csv

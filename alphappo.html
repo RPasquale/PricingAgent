@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Freight Pricing System: Detailed Technical Summary</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        h1 {
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            margin-top: 30px;
+            border-bottom: 1px solid #bdc3c7;
+            padding-bottom: 5px;
+        }
+        h3 {
+            margin-top: 20px;
+        }
+        code {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+            font-size: 0.9em;
+            padding: 2px 4px;
+        }
+        pre {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 10px;
+            overflow-x: auto;
+        }
+        .math {
+            font-style: italic;
+        }
+        .algorithm {
+            background-color: #e8f6fe;
+            border-left: 4px solid #3498db;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .process {
+            background-color: #e8f8e8;
+            border-left: 4px solid #2ecc71;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .important {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+        .feature {
+            margin-bottom: 15px;
+        }
+        .feature-name {
+            font-weight: bold;
+        }
+        .feature-description {
+            margin-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Advanced Freight Pricing System: Detailed Technical Summary</h1>
+    
+    <h2>1. Data Preprocessing and Feature Engineering</h2>
+    
+    <h3>1.1 Data Loading and Initial Processing</h3>
+    <p>
+        The system begins by loading the dataset from a CSV file ('marginwell_sample_lightbulb_output_dataset_1.csv') using pandas. This dataset contains historical freight pricing information, including order details, product information, costs, and revenues.
+    </p>
+    <p>
+        The initial preprocessing steps include:
+    </p>
+    <ul>
+        <li>
+            <strong>Date Conversion:</strong> The 'order_date' column is converted to datetime format using <code>pd.to_datetime(df['order_date'])</code>. This allows for easier manipulation and extraction of time-based features.
+        </li>
+        <li>
+            <strong>Time-based Feature Extraction:</strong> Additional features are extracted from the date to capture temporal patterns:
+            <ul>
+                <li><code>df['month'] = df['order_date'].dt.month</code>: Extracts the month (1-12) from the order date.</li>
+                <li><code>df['day_of_week'] = df['order_date'].dt.dayofweek</code>: Extracts the day of the week (0-6, where 0 is Monday).</li>
+                <li><code>df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)</code>: Creates a binary feature indicating whether the order was placed on a weekend (1) or weekday (0).</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h3>1.2 Feature Engineering</h3>
+    <p>
+        Several new features are engineered to capture complex relationships in the data and provide more informative inputs for the machine learning models:
+    </p>
+    
+    <div class="feature">
+        <span class="feature-name">Revenue to Cost Ratio:</span>
+        <div class="feature-description">
+            <code class="math">revenue_to_cost_ratio = line_product_revenue / line_product_cost</code>
+            <p>This ratio provides insight into the profitability of each order line. A higher ratio indicates better profitability.</p>
+            <p>Implementation:</p>
+            <pre>
+df['revenue_to_cost_ratio'] = np.where(df['line_product_cost'] != 0,
+                                       df['line_product_revenue'] / df['line_product_cost'],
+                                       0)
+df['revenue_to_cost_ratio'] = np.clip(df['revenue_to_cost_ratio'], 0, 10)
+            </pre>
+            <p>The ratio is clipped to a maximum of 10 to prevent extreme values from skewing the data.</p>
+        </div>
+    </div>
+
+    <div class="feature">
+        <span class="feature-name">Freight to Product Cost Ratio:</span>
+        <div class="feature-description">
+            <code class="math">freight_to_product_cost_ratio = line_freight_cost / line_product_cost</code>
+            <p>This ratio helps understand the relationship between freight costs and product costs. It can indicate situations where freight costs are disproportionately high compared to the product cost.</p>
+            <p>Implementation:</p>
+            <pre>
+df['freight_to_product_cost_ratio'] = np.where(df['line_product_cost'] != 0,
+                                               df['line_freight_cost'] / df['line_product_cost'],
+                                               0)
+df['freight_to_product_cost_ratio'] = np.clip(df['freight_to_product_cost_ratio'], 0, 10)
+            </pre>
+            <p>Similar to the revenue to cost ratio, this is also clipped to prevent extreme values.</p>
+        </div>
+    </div>
+
+    <div class="feature">
+        <span class="feature-name">7-day Moving Averages:</span>
+        <div class="feature-description">
+            <p>Moving averages are calculated for 'line_product_revenue' and 'line_freight_cost' to capture recent trends in revenue and costs.</p>
+            <p>Implementation:</p>
+            <pre>
+for col in ['line_product_revenue', 'line_freight_cost']:
+    df[f'avg_{col}_7d'] = df.groupby('customer_name')[col].transform(
+        lambda x: x.rolling(7, min_periods=1).mean()
+    )
+            </pre>
+            <p>This creates a 7-day moving average for each customer, helping to smooth out daily fluctuations and identify trends.</p>
+        </div>
+    </div>
+
+    <div class="feature">
+        <span class="feature-name">Margin Calculations:</span>
+        <div class="feature-description">
+            <p>Various margin calculations are performed to assess profitability from different angles:</p>
+            <ul>
+                <li>
+                    Product Margin:
+                    <code class="math">product_margin = ((line_product_revenue - line_product_cost) / line_product_revenue) * 100</code>
+                </li>
+                <li>
+                    Freight Margin:
+                    <code class="math">freight_margin = ((line_freight_revenue - line_freight_cost) / line_freight_revenue) * 100</code>
+                </li>
+                <li>
+                    Delivered Margin:
+                    <code class="math">delivered_margin = ((total_revenue - total_cost) / total_revenue) * 100</code>
+                </li>
+            </ul>
+            <p>Implementation:</p>
+            <pre>
+df['product_margin'] = np.where(df['line_product_revenue'] != 0,
+                                ((df['line_product_revenue'] - df['line_product_cost']) / df['line_product_revenue']) * 100,
+                                0)
+
+df['freight_margin'] = np.where(df['line_freight_revenue'] != 0,
+                                ((df['line_freight_revenue'] - df['line_freight_cost']) / df['line_freight_revenue']) * 100,
+                                0)
+
+df['delivered_margin'] = np.where((df['line_product_revenue'] + df['line_freight_revenue']) != 0,
+                                  ((df['line_product_revenue'] + df['line_freight_revenue'] -
+                                    df['line_product_cost'] - df['line_freight_cost']) /
+                                   (df['line_product_revenue'] + df['line_freight_revenue'])) * 100,
+                                  0)
+            </pre>
+            <p>These margin calculations provide insights into profitability at different levels of the business.</p>
+        </div>
+    </div>
+
+    <div class="feature">
+        <span class="feature-name">Total Revenue and Cost:</span>
+        <div class="feature-description">
+            <p>Total revenue and cost are calculated to get an overall picture of each transaction:</p>
+            <ul>
+                <li><code class="math">total_revenue = line_product_revenue + line_freight_revenue</code></li>
+                <li><code class="math">total_cost = line_product_cost + line_freight_cost</code></li>
+            </ul>
+            <p>Implementation:</p>
+            <pre>
+df['total_revenue'] = df['line_product_revenue'] + df['line_freight_revenue']
+df['total_cost'] = df['line_product_cost'] + df['line_freight_cost']
+            </pre>
+        </div>
+    </div>
+
+    <div class="feature">
+        <span class="feature-name">Volume to Delivery Margin Ratio:</span>
+        <div class="feature-description">
+            <code class="math">line_volume_cbm_to_delivery_margin_ratio = line_volume_cbm / delivered_margin</code>
+            <p>This ratio helps understand the relationship between the physical volume of the shipment and its profitability.</p>
+            <p>Implementation:</p>
+            <pre>
+df['line_volume_cbm_to_delivery_margin_ratio'] = np.where(df['delivered_margin'] != 0,
+                                                          df['line_volume_cbm'] / df['delivered_margin'],
+                                                          0)
+            </pre>
+            <p>A higher ratio might indicate less profitable shipments relative to their size.</p>
+        </div>
+    </div>
+
+    <h3>1.3 Data Scaling and Encoding</h3>
+    <p>
+        The preprocessed data is then scaled and encoded using scikit-learn's ColumnTransformer to prepare it for machine learning models:
+    </p>
+    <pre>
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), numerical_features),
+        ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
+    ])
+
+X_preprocessed = preprocessor.fit_transform(X)
+    </pre>
+    <ul>
+        <li><strong>Numerical features</strong> are standardized using StandardScaler. This transforms the features to have a mean of 0 and a standard deviation of 1, which is important for many machine learning algorithms.</li>
+        <li><strong>Categorical features</strong> are one-hot encoded using OneHotEncoder. This creates binary columns for each category, allowing the model to handle categorical data effectively.</li>
+    </ul>
+    <p>
+        The <code>handle_unknown='ignore'</code> parameter in OneHotEncoder allows the model to handle new categories at prediction time, improving its robustness.
+    </p>
+
+    <h3>1.4 Customer Segmentation</h3>
+    <p>
+        A K-means clustering algorithm is applied to segment customers based on their purchasing behavior. This segmentation can provide valuable insights and allow for more targeted pricing strategies.
+    </p>
+    <div class="algorithm">
+        <ol>
+            <li>
+                <strong>Aggregate customer data:</strong>
+                <pre>
+customer_features = df.groupby('customer_name').agg({
+    'total_revenue': 'sum',
+    'line_quantity': 'sum',
+    'delivered_margin': 'mean',
+    'nn_delivery_margin_pred': 'mean'
+}).reset_index()
+                </pre>
+                This step summarizes key metrics for each customer.
+            </li>
+            <li>
+                <strong>Scale the aggregated features:</strong>
+                <pre>
+scaler = StandardScaler()
+customer_features_scaled = scaler.fit_transform(customer_features.drop('customer_name', axis=1))
+                </pre>
+                Scaling ensures that all features contribute equally to the clustering.
+            </li>
+            <li>
+                <strong>Apply K-means clustering:</strong>
+                <pre>
+kmeans = KMeans(n_clusters=3, random_state=42)
+customer_features['segment'] = kmeans.fit_predict(customer_features_scaled)
+                </pre>
+                The algorithm is set to create 3 distinct customer segments.
+            </li>
+            <li>
+                <strong>Map segments back to the original dataframe:</strong>
+                <pre>
+customer_segment_map = dict(zip(customer_features['customer_name'], customer_features['segment']))
+df['customer_segment'] = df['customer_name'].map(customer_segment_map)
+                </pre>
+                This step ensures that each transaction in the original dataset is labeled with its corresponding customer segment.
+            </li>
+        </ol>
+    </div>
+    <p>
+        The resulting customer segments can be used as an additional feature in the pricing model, allowing it to adapt its strategies based on different customer groups.
+    </p>
+
+    <h3>1.5 Feature Importance and Selection</h3>
+    <p>
+        After creating these features, it's crucial to assess their importance and potentially select the most relevant ones for the model. This can be done using techniques such as:
+    </p>
+    <ul>
+        <li>Correlation analysis to identify and potentially remove highly correlated features</li>
+        <li>Feature importance ranking using tree-based models like Random Forests</li>
+        <li>Recursive Feature Elimination (RFE) to iteratively remove less important features</li>
+    </ul>
+    <p>
+        These steps help in reducing noise, preventing overfitting, and improving the model's performance and interpretability.
+    </p>
+
+    <h3>1.6 Data Validation and Cleaning</h3>
+    <p>
+        Throughout the preprocessing and feature engineering steps, it's important to perform data validation and cleaning:
+    </p>
+    <ul>
+        <li>Handling missing values through imputation or removal</li>
+        <li>Detecting and addressing outliers</li>
+        <li>Ensuring consistency in units and scales across features</li>
+        <li>Validating the correctness of derived features through spot checks and statistical tests</li>
+    </ul>
+    <p>
+        These steps ensure the quality and reliability of the data used to train the pricing model.
+    </p>
+
+    <h2>2. Neural Network Models</h2>
+
+    <h3>2.1 EnhancedNet Architecture</h3>
+    <p>
+        The EnhancedNet is used for profit and quantity prediction:
+    </p>
+    <pre>
+class EnhancedNet(nn.Module):
+    def __init__(self, input_size):
+        super(EnhancedNet, self).__init__()
+        self.fc1 = nn.Linear(input_size, 128)
+        self.bn1 = nn.BatchNorm1d(128)
+        self.fc2 = nn.Linear(128, 64)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.3)
+
+    def forward(self, x):
+        x = torch.relu(self.bn1(self.fc1(x)))
+        x = self.dropout(x)
+        x = torch.relu(self.bn2(self.fc2(x)))
+        x = self.dropout(x)
+        x = torch.relu(self.fc3(x))
+        return self.fc4(x)
+    </pre>
+
+    <h3>2.2 NeuralNetwork Architecture</h3>
+    <p>
+        The NeuralNetwork is used for delivery margin prediction:
+    </p>
+    <pre>
+class NeuralNetwork(nn.Module):
+    def __init__(self, input_dim):
+        super(NeuralNetwork, self).__init__()
+        self.fc1 = nn.Linear(input_dim, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, 1)
+    
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+    </pre>
+
+    <h3>2.3 Training Process</h3>
+    <p>
+        The neural networks are trained using the following process:
+    </p>
+    <div class="process">
+        <ol>
+            <li>Initialize models (profit_model, quantity_model, deliv_margin_model)</li>
+            <li>Define loss function (Huber loss) and optimizers (AdamW)</li>
+            <li>Set up learning rate schedulers (ReduceLROnPlateau)</li>
+            <li>Create DataLoaders for batch processing</li>
+            <li>Train for a specified number of epochs:
+                <ul>
+                    <li>Forward pass</li>
+                    <li>Compute loss</li>
+                    <li>Backward pass</li>
+                    <li>Optimize parameters</li>
+                    <li>Adjust learning rate</li>
+                </ul>
+            </li>
+            <li>Save trained models</li>
+        </ol>
+    </div>
+
+    <h2>3. Multi-Head Self-Attention</h2>
+    
+    <h3>3.1 MultiHeadSelfAttention Class</h3>
+    <pre>
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, input_dim, num_heads, dropout=0.1):
+        super(MultiHeadSelfAttention, self).__init__()
+        self.input_dim = input_dim
+        self.num_heads = num_heads
+        self.head_dim = input_dim // num_heads
+
+        self.query = nn.Linear(input_dim, input_dim)
+        self.key = nn.Linear(input_dim, input_dim)
+        self.value = nn.Linear(input_dim, input_dim)
+
+        self.dropout = nn.Dropout(dropout)
+        self.output_linear = nn.Linear(input_dim, input_dim)
+
+    def forward(self, x):
+        batch_size, seq_length, _ = x.size()
+
+        query = self.query(x).view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
+        key = self.key(x).view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
+        value = self.value(x).view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
+
+        scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+        attention_weights = F.softmax(scores, dim=-1)
+        attention_weights = self.dropout(attention_weights)
+
+        context = torch.matmul(attention_weights, value)
+        context = context.transpose(1, 2).contiguous().view(batch_size, seq_length, self.input_dim)
+        output = self.output_linear(context)
+
+        return output
+    </pre>
+
+    <h3>3.2 Mathematical Explanation</h3>
+    <p>
+        The multi-head self-attention mechanism operates as follows:
+    </p>
+    <ol>
+        <li>Input transformation:
+            <ul>
+                <li><code class="math">Q = W_q * X</code></li>
+                <li><code class="math">K = W_k * X</code></li>
+                <li><code class="math">V = W_v * X</code></li>
+            </ul>
+            Where <code>X</code> is the input, and <code>W_q</code>, <code>W_k</code>, <code>W_v</code> are learnable weight matrices.
+        </li>
+        <li>Attention scores calculation:
+            <code class="math">scores = (Q * K^T) / sqrt(d_k)</code>
+            Where <code>d_k</code> is the dimension of the key vectors.
+        </li>
+        <li>Softmax application:
+            <code class="math">attention_weights = softmax(scores)</code>
+        </li>
+        <li>Output computation:
+            <code class="math">output = attention_weights * V</code>
+        </li>
+        <li>Linear transformation:
+            <code class="math">final_output = W_o * output</code>
+            Where <code>W_o</code> is a learnable weight matrix.
+        </li>
+    </ol>
+
+    <h2>4. Action and Policy Networks</h2>
+
+    <h3>4.1 PolicyNetwork Class</h3>
+    <pre>
+class PolicyNetwork(nn.Module):
+    def __init__(self, state_size, action_size):
+        super(PolicyNetwork, self).__init__()
+        self.fc1 = nn.Linear(state_size, 256)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.fc2 = nn.Linear(256, 128)
+        self.bn2 = nn.BatchNorm1d(128)
+        self.attention = AttentionModule(128, num_heads=4)
+        self.mean = nn.Linear(128, action_size)
+        self.log_std = nn.Linear(128, action_size)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        if x.size(0) > 1:
+            x = self.bn1(x)
+        x = torch.relu(x)
+
+        x = self.fc2(x)
+        if x.size(0) > 1:
+            x = self.bn2(x)
+        x = torch.relu(x)
+
+        x = self.attention(x)
+        mean = self.mean(x)
+        log_std = self.log_std(x)
+        log_std = torch.clamp(log_std, min=-20, max=2)
+        return mean, log_std
+    </pre>
+
+    <h3>4.2 ValueNetwork Class</h3>
+    <pre>
+class ValueNetwork(nn.Module):
+    def __init__(self, state_size):
+        super(ValueNetwork, self.__init__)
+        self.fc1 = nn.Linear(state_size, 256)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.fc2 = nn.Linear(256, 128)
+        self.bn2 = nn.BatchNorm1d(128)
+        self.attention = AttentionModule(128, num_heads=4)
+        self.value = nn.Linear(128, 1)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        if x.size(0) > 1:
+            x = self.bn1(x)
+        x = torch.relu(x)
+
+        x = self.fc2(x)
+        if x.size(0) > 1:
+            x = self.bn2(x)
+        x = torch.relu(x)
+
+        x = self.attention(x)
+        return self.value(x)
+    </pre>
+
+    <h2>5. Monte Carlo Tree Search (MCTS)</h2>
+
+    <h3>5.1 MCTS Class</h3>
+    <pre>
+class MCTS:
+    def __init__(self, model, env, num_simulations=500, c_puct=10.0):
+        self.model = model
+        self.env = env
+        self.num_simulations = num_simulations
+        self.c_puct = c_puct
+        self.progressive_widening_constant = 1.0
+
+    def search(self, state, n_parallel=10):
+        root = Node(state, c_puct=self.c_puct)
+            
+        for _ in range(self.num_simulations // n_parallel):
+            leaves = []
+            search_paths = []
+            
+            # Selection
+            for _ in range(n_parallel):
+                node = root
+                search_path = [node]
+                while node.expanded():
+                    action, node = node.select_child()
+                    next_state, reward, done = self.env.step(action)
+                    node.state = next_state
+                    node.reward = reward
+                    node.done = done
+                    search_path.append(node)
+                    if done:
+                        break
+                leaves.append(node)
+                search_paths.append(search_path)
+            
+            # Expansion and Evaluation
+            leaf_states = torch.stack([leaf.state for leaf in leaves])
+            policy_logits, values = self.model(leaf_states)
+            policies = F.softmax(policy_logits, dim=1)
+            
+            for leaf, policy, value, search_path in zip(leaves, policies, values, search_paths):
+                if not leaf.expanded() and not leaf.done:
+                    leaf.expand(leaf.state, policy)
+                self.backpropagate(search_path, value.item())
+
+        return self.select_action(root)
+
+    def select_action(self, root):
+        visit_counts = torch.tensor([child.visit_count for child in root.children.values()])
+        selected_action = visit_counts.argmax().item()
+        print(f"Selected Action: {selected_action}")
+        return selected_action
+
+    def backpropagate(self, search_path, value):
+        for node in reversed(search_path):
+            node.value_sum += value
+            node.visit_count += 1
+</pre>
+
+<h3>5.2 Node Class</h3>
+<pre>
+class Node:
+def __init__(self, state, parent=None, action=None, c_puct=1.0):
+    self.state = state
+    self.parent = parent
+    self.action = action
+    self.children = {}
+    self.visit_count = 0
+    self.value_sum = 0
+    self.policy = None
+    self.c_puct = c_puct
+    self.reward = 0
+    self.done = False
+
+def expanded(self):
+    return len(self.children) > 0
+
+def select_child(self):
+    visit_counts = torch.tensor([child.visit_count for child in self.children.values()], dtype=torch.float32, device=device)
+    total_sqrt_n = torch.sqrt(visit_counts.sum())
+    
+    actions = list(self.children.keys())
+    policy_scores = self.policy[actions]
+    
+    uct_scores = (
+        torch.tensor([child.value() for child in self.children.values()], dtype=torch.float32, device=device) +
+        self.c_puct * policy_scores * total_sqrt_n / (1 + visit_counts)
+    )
+    
+    best_action = actions[uct_scores.argmax().item()]
+    return best_action, self.children[best_action]
+
+def expand(self, state, policy):
+    self.policy = policy
+    for action in range(len(policy)):
+        if policy[action] > 0:
+            self.children[action] = Node(state, parent=self, action=action, c_puct=self.c_puct)
+
+def value(self):
+    if self.visit_count == 0:
+        return 0
+    return self.value_sum / self.visit_count
+</pre>
+
+<h3>5.3 MCTS Algorithm Explanation</h3>
+<p>
+    The Monte Carlo Tree Search algorithm consists of four main steps:
+</p>
+<ol>
+    <li><strong>Selection:</strong> Starting from the root node, the algorithm recursively selects child nodes according to the UCT (Upper Confidence Bound for Trees) formula:
+        <code class="math">UCT = Q(s,a) + c_puct * P(s,a) * sqrt(N(s)) / (1 + N(s,a))</code>
+        Where:
+        <ul>
+            <li><code>Q(s,a)</code> is the average value of the state-action pair</li>
+            <li><code>P(s,a)</code> is the prior probability of selecting action a in state s</li>
+            <li><code>N(s)</code> is the visit count of the state</li>
+            <li><code>N(s,a)</code> is the visit count of the state-action pair</li>
+            <li><code>c_puct</code> is an exploration constant</li>
+        </ul>
+    </li>
+    <li><strong>Expansion:</strong> When a leaf node is reached, it is expanded by adding child nodes for all possible actions.</li>
+    <li><strong>Simulation:</strong> The value of the new leaf node is estimated using the neural network.</li>
+    <li><strong>Backpropagation:</strong> The estimated value is propagated back up the tree, updating the statistics of all parent nodes.</li>
+</ol>
+
+<h2>6. Proximal Policy Optimization (PPO)</h2>
+
+<h3>6.1 CombinedAlphaZeroPPOAgent Class</h3>
+<pre>
+class CombinedAlphaZeroPPOAgent:
+def __init__(self, state_size, action_size, env, clip_epsilon=0.2, c1=0.5, c2=0.01):
+    self.model = CombinedNetwork(state_size, action_size).to(device)
+    self.env = env
+    self.mcts = MCTS(self.model, self.env, num_simulations=500, c_puct=1.0)
+    self.optimizer = optim.Adam(self.model.parameters(), lr=0.0001)
+    self.memory = deque(maxlen=100000) 
+    self.batch_size = 256
+    self.action_size = action_size
+    self.clip_epsilon = clip_epsilon
+    self.c1 = c1
+    self.c2 = c2
+    self.scaler = GradScaler()
+    self.entropy_weight = 0.05
+    self.scheduler = StepLR(self.optimizer, step_size=100, gamma=0.9)
+
+def get_action(self, state, training=True, episode=0):
+    exploration_rate = max(0.05, min(1, 1.0 - math.log(1 + episode) / math.log(1000)))
+    mcts_probability = min(0.8, 0.2 + episode / 1000)
+    
+    if training and random.random() < exploration_rate:
+        chosen_action = random.randint(0, self.action_size - 1)
+        print(f"Random Action Chosen: {chosen_action}")
+        return chosen_action
+    elif training and random.random() < mcts_probability:
+        action = self.mcts.search(state)
+        print(f"MCTS Chosen Action: {action}")
+        return action
+    else:
+        with torch.no_grad():
+            policy_logits, _ = self.model(state.unsqueeze(0))
+            temperature = max(0.5, 1.0 - episode / 1000)
+            action = torch.multinomial(F.softmax(policy_logits / temperature, dim=1), 1).item()
+            print(f"Policy Chosen Action: {action}")
+        return action
+
+def store_transition(self, state, action, reward, next_state, done):
+    self.memory.append((state, action, reward, next_state, done))
+
+def update(self):
+    if len(self.memory) < self.batch_size:
+        return
+
+    batch = random.sample(self.memory, self.batch_size)
+    states, actions, rewards, next_states, dones = zip(*batch)
+
+    states = torch.stack(states).to(device)
+    actions = torch.tensor(actions).to(device)
+    rewards = torch.tensor(rewards).float().to(device)
+    next_states = torch.stack(next_states).to(device)
+    dones = torch.tensor(dones).float().to(device)
+
+    dataset = TensorDataset(states, actions, rewards, next_states, dones)
+    dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
+    for states, actions, rewards, next_states, dones in dataloader:
+        with torch.cuda.amp.autocast():
+            with torch.no_grad():
+                old_policy_logits, _ = self.model(states)
+                old_policy = F.softmax(old_policy_logits, dim=1)
+                old_log_policy = F.log_softmax(old_policy_logits, dim=1)
+                old_log_policy_actions = old_log_policy.gather(1, actions.unsqueeze(1)).squeeze()
+                
+                _, next_values = self.model(next_states)
+                targets = rewards + (1 - dones) * 0.99 * next_values.squeeze()
+
+        for _ in range(5):  # PPO update iterations
+            with autocast():
+                policy_logits, values = self.model(states)
+                
+                new_policy = F.softmax(policy_logits, dim=1)
+                new_log_policy = F.log_softmax(policy_logits, dim=1)
+                new_log_policy_actions = new_log_policy.gather(1, actions.unsqueeze(1)).squeeze()
+
+                ratio = torch.exp(new_log_policy_actions - old_log_policy_actions)
+                advantages = targets - values.squeeze().detach()
+
+                surrogate1 = ratio * advantages
+                surrogate2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
+                policy_loss = -torch.min(surrogate1, surrogate2).mean()
+
+                value_loss = F.mse_loss(values.squeeze(), targets)
+                entropy = -(new_policy * new_log_policy).sum(dim=1).mean()
+
+                loss = policy_loss + self.c1 * value_loss - self.c2 * entropy + self.entropy_weight * entropy
+
+            self.optimizer.zero_grad()
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.scheduler.step()
+</pre>
+
+<h3>6.2 PPO Algorithm Explanation</h3>
+<p>
+    The Proximal Policy Optimization (PPO) algorithm is an on-policy reinforcement learning method that aims to improve the stability of policy updates. The key components of PPO are:
+</p>
+<ol>
+    <li><strong>Policy Ratio:</strong> 
+        <code class="math">r_t(θ) = π_θ(a_t|s_t) / π_θ_old(a_t|s_t)</code>
+        This ratio measures how much the current policy differs from the old policy.
+    </li>
+    <li><strong>Clipped Surrogate Objective:</strong>
+        <code class="math">L^CLIP(θ) = E_t[min(r_t(θ)A_t, clip(r_t(θ), 1-ε, 1+ε)A_t)]</code>
+        Where:
+        <ul>
+            <li><code>A_t</code> is the advantage estimate</li>
+            <li><code>ε</code> is the clip range (usually 0.2)</li>
+        </ul>
+        This objective function prevents large policy updates by clipping the ratio.
+    </li>
+    <li><strong>Value Function Loss:</strong>
+        <code class="math">L^VF(θ) = (V_θ(s_t) - V_target)^2</code>
+        This loss ensures that the value function accurately predicts the expected returns.
+    </li>
+    <li><strong>Entropy Bonus:</strong>
+        <code class="math">S[π_θ](s_t)</code>
+        Adding an entropy term to the objective encourages exploration and prevents premature convergence.
+    </li>
+</ol>
+
+<h2>7. Integration of MCTS and PPO</h2>
+<p>
+    The Advanced Freight Pricing System combines the strengths of MCTS and PPO in the following ways:
+</p>
+<ol>
+    <li><strong>Action Selection:</strong> During training, the agent uses a combination of random exploration, MCTS-based selection, and policy-based selection. This hybrid approach balances exploration and exploitation.</li>
+    <li><strong>Policy Improvement:</strong> The MCTS search results are used to guide the policy updates in the PPO algorithm, providing more informed policy gradients.</li>
+    <li><strong>Value Estimation:</strong> The value head of the neural network is trained using both the MCTS search results and the PPO targets, leading to more accurate value estimates.</li>
+    <li><strong>Exploration Strategy:</strong> The system uses a dynamic exploration rate and MCTS probability that changes over time, allowing for a gradual transition from exploration to exploitation.</li>
+</ol>
+
+<h2>8. Environment Simulation</h2>
+<h3>8.1 AdvancedFreightPricingEnvironment Class</h3>
+<pre>
+class AdvancedFreightPricingEnvironment:
+def __init__(self, data, action_size, original_df, feature_names, categorical_features, curriculum_factor=1.0):
+    self.data = torch.tensor(data, device=device, dtype=torch.float32)
+    self.original_df = original_df
+    self.feature_names = feature_names
+    self.categorical_features = categorical_features
+
+    self.column_indices = {name: i for i, name in enumerate(feature_names)}
+    self.action_size = action_size
+    self.current_index = 0
+    self.reset_metrics()
+    self.data_length = len(self.data)
+    self.curriculum_factor = curriculum_factor
+    self.dataset_stats = compute_dataset_stats(original_df)
+    self.preprocessor = None
+    self.profit_model = None
+    self.quantity_model = None
+    self.nn_model = None
+    self.price_elasticity = self.calculate_price_elasticity()
+    self.lower_price, self.upper_price, self.best_action_size = self.determine_price_range_and_action_size()
+
+def step(self, action):
+    current_state = self.data[self.current_index]
+
+    normalized_action = action / (self.action_size - 1)
+    price_multiplier = self.lower_price + normalized_action * (self.upper_price - self.lower_price)
+    new_freight_price = torch.max(torch.tensor(0.01, device=device), current_state[self.column_indices['line_freight_cost']] * price_multiplier)
+
+    base_quantity = current_state[self.column_indices['line_quantity']]
+    price_sensitivity = torch.exp(-self.price_elasticity * new_freight_price)
+    new_quantity = torch.max(torch.tensor(1, device=device), (base_quantity * price_sensitivity).int())
+
+    input_data = {name: current_state[i].item() for name, i in self.column_indices.items()}
+    input_data.update({'new_freight_price': new_freight_price.item(),
+    'new_quantity': new_quantity.item(),
+})
+
+# Calculate reward
+reward = calculate_reward(
+    input_data,
+    self.preprocessor,
+    self.profit_model,
+    self.quantity_model,
+    self.nn_model,
+    self.dataset_stats,
+    self.categorical_features,
+    self.input_size
+)
+
+# Apply curriculum factor to reward
+reward *= self.curriculum_factor
+
+# Clip the reward to avoid extreme values
+reward = torch.clamp(reward, min=-10.0, max=10.0)
+    
+self.total_reward += reward
+self.total_quantity += new_quantity
+self.total_margin += (new_freight_price - current_state[self.column_indices['line_freight_cost']]) / new_freight_price
+
+self.current_index = (self.current_index + 1) % self.data_length
+next_state = self.data[self.current_index]
+
+done = (self.current_index == 0)
+
+return next_state, reward, done
+</pre>
+
+<h3>8.2 Environment Dynamics</h3>
+<p>
+The AdvancedFreightPricingEnvironment simulates the freight pricing process with the following key components:
+</p>
+<ol>
+<li><strong>Price Elasticity:</strong> The environment calculates price elasticity based on historical data, which is used to model how quantity demand changes with price:
+    <code class="math">price_sensitivity = exp(-price_elasticity * new_freight_price)</code>
+</li>
+<li><strong>Quantity Prediction:</strong> The new quantity is predicted based on the base quantity and price sensitivity:
+    <code class="math">new_quantity = max(1, base_quantity * price_sensitivity)</code>
+</li>
+<li><strong>Reward Calculation:</strong> The reward is calculated using a complex function that takes into account predicted profit, quantity, and margin:
+    <code class="math">reward = f(predicted_profit, predicted_quantity, margin_difference, segment_multiplier, month_multiplier)</code>
+</li>
+<li><strong>Curriculum Learning:</strong> The environment incorporates a curriculum factor that can be adjusted to gradually increase the difficulty of the task:
+    <code class="math">final_reward = reward * curriculum_factor</code>
+</li>
+</ol>
+
+<h2>9. Training Process</h2>
+<h3>9.1 train_agent Function</h3>
+<pre>
+def train_agent(env, agent, episodes, writer=None, patience=50):
+best_avg_reward = float('-inf')
+episodes_without_improvement = 0
+
+for e in tqdm(range(episodes), desc="Training Episodes"):
+state = env.reset().to(device)
+done = False
+episode_reward = 0.0
+
+while not done:
+    action = agent.get_action(state, training=True, episode=e)
+    next_state, reward, done = env.step(action)
+    next_state = next_state.to(device)
+
+    episode_reward += reward.item()
+
+    agent.store_transition(state, action, reward, next_state, done)
+
+    state = next_state
+
+    if len(agent.memory) >= agent.batch_size:
+        agent.update()
+
+if (e + 1) % 10 == 0:
+    metrics = env.get_metrics()
+    current_avg_reward = metrics['avg_reward'].item()
+    
+    print(f"\nEpisode: {e+1}/{episodes}")
+    print(f"Episode Reward: {episode_reward:.2f}")
+    print(f"Average Reward: {current_avg_reward:.2f}")
+    print(f"Total Quantity: {metrics['total_quantity']}")
+    print(f"Average Margin: {metrics['avg_margin'].item():.2f}")
+
+    if writer:
+        writer.add_scalar('Reward/episode', episode_reward, e)
+        writer.add_scalar('Reward/average', current_avg_reward, e)
+        writer.add_scalar('Quantity/total', metrics['total_quantity'], e)
+        writer.add_scalar('Margin/average', metrics['avg_margin'].item(), e)
+
+    if current_avg_reward > best_avg_reward:
+        best_avg_reward = current_avg_reward
+        torch.save(agent.model.state_dict(), 'best_model.pth')
+        print(f"New best model saved with average reward: {best_avg_reward:.2f}")
+        episodes_without_improvement = 0
+    else:
+        episodes_without_improvement += 10
+
+    if episodes_without_improvement >= patience:
+        print(f"Early stopping triggered after {e+1} episodes")
+        break
+
+if (e + 1) % 50 == 0:
+    env.increase_difficulty(factor=1.05)
+    print(f"Increased environment difficulty. New factor: {env.curriculum_factor:.2f}")
+
+agent.entropy_weight = max(0.01, agent.entropy_weight * 0.995)
+
+print("Training completed.")
+return best_avg_reward
+</pre>
+
+<h3>9.2 Training Process Explanation</h3>
+<p>
+The training process combines several advanced techniques to optimize the freight pricing strategy:
+</p>
+<ol>
+<li><strong>Episode-based Training:</strong> The agent is trained over multiple episodes, each representing a complete run through the dataset.</li>
+<li><strong>Dynamic Action Selection:</strong> The agent uses a combination of random exploration, MCTS-guided selection, and policy-based selection to choose actions. The balance between these strategies evolves over time.</li>
+<li><strong>Experience Replay:</strong> Transitions (state, action, reward, next_state, done) are stored in a memory buffer and randomly sampled for training, improving data efficiency and reducing correlations in the observation sequence.</li>
+<li><strong>Proximal Policy Optimization:</strong> The agent's policy is updated using the PPO algorithm, which provides stable and efficient policy improvement.</li>
+<li><strong>Curriculum Learning:</strong> The environment difficulty is gradually increased, allowing the agent to learn progressively more complex pricing strategies.</li>
+<li><strong>Early Stopping:</strong> Training is halted if no improvement is seen for a specified number of episodes, preventing overfitting and unnecessary computation.</li>
+<li><strong>Entropy Annealing:</strong> The entropy weight in the loss function is gradually reduced, encouraging more exploitation of learned strategies as training progresses.</li>
+<li><strong>Model Checkpointing:</strong> The best-performing model is saved throughout training, ensuring that the optimal policy is retained.</li>
+<li><strong>Performance Monitoring:</strong> Key metrics such as episode reward, average reward, total quantity, and average margin are tracked and optionally logged using TensorBoard for visualization.</li>
+</ol>
+
+<h2>10. Mathematical Foundation</h2>
+<p>
+The Advanced Freight Pricing System is built on a solid mathematical foundation, incorporating concepts from various fields:
+</p>
+<ol>
+<li><strong>Reinforcement Learning:</strong> The core of the system is based on the Markov Decision Process (MDP) framework, where the goal is to maximize the expected cumulative reward:
+    <code class="math">V(s) = E[Σ γ^t R_t | s_0 = s]</code>
+    Where V(s) is the value function, γ is the discount factor, and R_t is the reward at time t.
+</li>
+<li><strong>Monte Carlo Tree Search:</strong> The MCTS algorithm uses the UCT formula to balance exploration and exploitation:
+    <code class="math">UCT = Q(s,a) + c_puct * P(s,a) * √(N(s)) / (1 + N(s,a))</code>
+</li>
+<li><strong>Proximal Policy Optimization:</strong> The PPO algorithm uses a clipped surrogate objective to update the policy:
+    <code class="math">L^CLIP(θ) = E_t[min(r_t(θ)A_t, clip(r_t(θ), 1-ε, 1+ε)A_t)]</code>
+</li>
+<li><strong>Neural Networks:</strong> The system uses deep neural networks to approximate the policy and value functions, leveraging the universal function approximation theorem.</li>
+<li><strong>Multi-Head Attention:</strong> The attention mechanism is based on the scaled dot-product attention formula:
+    <code class="math">Attention(Q, K, V) = softmax(QK^T / √d_k)V</code>
+</li>
+<li><strong>Price Elasticity:</strong> The system incorporates the economic concept of price elasticity of demand:
+    <code class="math">E_d = (ΔQ/Q) / (ΔP/P)</code>
+    Where E_d is the price elasticity of demand, ΔQ is the change in quantity demanded, and ΔP is the change in price.
+</li>
+</ol>
+
+<h2>11. Conclusion</h2>
+<p>
+The Advanced Freight Pricing System represents a cutting-edge application of reinforcement learning and advanced AI techniques to the complex problem of dynamic pricing in the freight industry. By combining Monte Carlo Tree Search, Proximal Policy Optimization, neural networks with attention mechanisms, and domain-specific knowledge of freight pricing dynamics, the system is capable of learning sophisticated pricing strategies that adapt to market conditions and customer behavior.
+</p>
+<p>
+Key innovations of this system include:
+</p>
+<ul>
+<li>Integration of MCTS and PPO for improved exploration and stable policy updates</li>
+<li>Use of multi-head attention mechanisms to capture complex relationships in pricing data</li>
+<li>Incorporation of curriculum learning to gradually increase task difficulty</li>
+<li>Dynamic action selection strategy that balances exploration and exploitation</li>
+<li>Sophisticated reward function that considers multiple factors including profit, quantity, and customer segments</li>
+</ul>
+<p>
+This system demonstrates the potential of AI to revolutionize pricing strategies in complex, dynamic markets, offering a powerful tool for businesses to optimize their operations and improve profitability.
+</p>
+</body>
+</html>
